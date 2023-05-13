@@ -1,0 +1,6 @@
+data/zh-en
+**cache**
+.vscode
+*.xml
+*.en
+*.zh
