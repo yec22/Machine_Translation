@@ -25,9 +25,5 @@ root
 - preprocess（数据预处理代码）
   - dataset.py
   - demo.py
-
-.gitignore
-README.md
-requirements.txt
 ...
 ```
