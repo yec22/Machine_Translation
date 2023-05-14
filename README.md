@@ -19,7 +19,7 @@ root
 - data（存放数据集）
   - zh-en
 - evaluation（指标评测代码）
-  -
+  - metric.py
 - models（实现的模型代码）
   -
 - preprocess（数据预处理代码）
