@@ -1,6 +1,8 @@
 data/zh-en
+.DS_Store
 **cache**
 .vscode
 *.xml
 *.en
 *.zh
+exps*

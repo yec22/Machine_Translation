@@ -1,6 +1,9 @@
 import xml.etree.ElementTree as ET
-import numpy as np
+from tqdm import tqdm
 import os
+import jieba
+import nltk
+import json
 
 class Dataset:
     def __init__(self, type="train", year=2010):
@@ -19,6 +22,11 @@ class Dataset:
             self.load_validate_data()
         elif self.type == "test":
             self.load_test_data(year)
+        
+        self.exp_dir = "exps_MEM"
+        if not os.path.exists(self.exp_dir):
+            os.mkdir(self.exp_dir)
+        nltk.download('punkt')
     
     def load_train_data(self):
         self.data = []
@@ -36,7 +44,7 @@ class Dataset:
                 continue
 
             # optional, remove the blank space in the chinese sentence
-            # zh = zh.replace(" ", "")
+            zh = zh.replace(" ", "")
             data_sample = {}
             data_sample["en"] = en
             data_sample["zh"] = zh
@@ -68,7 +76,7 @@ class Dataset:
         
         for en, zh in zip(en_data, zh_data):
             # optional, remove the blank space in the chinese sentence
-            # zh = zh.replace(" ", "")
+            zh = zh.replace(" ", "")
             data_sample = {}
             data_sample["en"] = en
             data_sample["zh"] = zh
@@ -100,7 +108,7 @@ class Dataset:
         
         for en, zh in zip(en_data, zh_data):
             # optional, remove the blank space in the chinese sentence
-            # zh = zh.replace(" ", "")
+            zh = zh.replace(" ", "")
             data_sample = {}
             data_sample["en"] = en
             data_sample["zh"] = zh
@@ -108,6 +116,107 @@ class Dataset:
 
         corpus_en_file.close()
         corpus_zh_file.close()
+    
+    def build_vocab(self):
+        '''
+        build English & Chinese vocabulary dictionary
+        '''
+        align_file = open(os.path.join(self.exp_dir, "text.en-zh"), 'w', encoding='utf-8')
+
+        self.en_word2idx = {}
+        self.en_idx2word = {}
+        self.zh_word2idx = {}
+        self.zh_idx2word = {}
+
+        self.en_word_n = 0
+        self.zh_word_n = 0
+
+        corpus = self.get_all_item()
+        for pair in tqdm(corpus):
+            # English
+            # divide with nltk
+            self.en_word2idx['<unk>'] = {"idx": 0, "count": 0}
+            self.en_idx2word[0] = {"word": '<unk>', "count": 0}
+
+            en_seg_list = nltk.word_tokenize(pair['en'])
+            for w in en_seg_list:
+                w = w.lower() 
+                if w not in self.en_word2idx: # first appear
+                    self.en_word_n += 1
+                    self.en_word2idx[w] = {"idx": self.en_word_n, "count": 1}
+                    self.en_idx2word[self.en_word_n] = {"word": w, "count": 1}
+                else: # add count number
+                    self.en_word2idx[w]["count"] += 1
+                    word_idx = self.en_word2idx[w]["idx"]
+                    self.en_idx2word[word_idx]["count"] += 1
+            # Chinese
+            # divide with jieba
+            zh_seg_list = list(jieba.cut(pair['zh'], cut_all=False))
+            for w in zh_seg_list:
+                if w not in self.zh_word2idx: # first appear
+                    self.zh_word_n += 1
+                    self.zh_word2idx[w] = {"idx": self.zh_word_n, "count": 1}
+                    self.zh_idx2word[self.zh_word_n] = {"word": w, "count": 1}
+                else: # add count number
+                    self.zh_word2idx[w]["count"] += 1
+                    word_idx = self.zh_word2idx[w]["idx"]
+                    self.zh_idx2word[word_idx]["count"] += 1
+            
+            write_list = [w.lower() + ' ' for w in en_seg_list] + [' ', '|||', ' '] +  [w + ' ' for w in zh_seg_list]
+            align_file.writelines(write_list)
+            align_file.write('\n')
+
+        align_file.close()
+        
+        # record
+        with open(os.path.join(self.exp_dir, "en_word2idx.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.en_word2idx, json_file, ensure_ascii=False)
+        
+        with open(os.path.join(self.exp_dir, "en_idx2word.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.en_idx2word, json_file, ensure_ascii=False)
+        
+        with open(os.path.join(self.exp_dir, "zh_word2idx.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.zh_word2idx, json_file, ensure_ascii=False)
+        
+        with open(os.path.join(self.exp_dir, "zh_idx2word.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.zh_idx2word, json_file, ensure_ascii=False)
+    
+    def build_translate_table(self):
+        align_file = open(os.path.join(self.exp_dir, "forward.align"), encoding='utf-8')
+        align_corpus = align_file.readlines()
+        corpus = self.get_all_item()
+
+        # calculate translate table
+        self.translate_table = {}
+        for i in tqdm(range(len(align_corpus))):
+            sentence = align_corpus[i].strip().split(' ')
+            en_seg_list = nltk.word_tokenize(corpus[i]['en'])
+            en_seg_list = [w.lower() for w in en_seg_list]
+            zh_seg_list = list(jieba.cut(corpus[i]['zh'], cut_all=False))
+
+            for w in sentence:
+                if w == '':
+                    continue
+                en_idx = int(w.split('-')[0])
+                zh_idx = int(w.split('-')[1])
+                if en_seg_list[en_idx] not in self.translate_table:
+                    # first appear
+                    self.translate_table[en_seg_list[en_idx]] = {}
+                if zh_seg_list[zh_idx] not in self.translate_table[en_seg_list[en_idx]]:
+                    # new translate
+                    self.translate_table[en_seg_list[en_idx]][zh_seg_list[zh_idx]] = 1
+                else:
+                    # add count number
+                    self.translate_table[en_seg_list[en_idx]][zh_seg_list[zh_idx]] += 1
+
+        # clean & reorder
+        for key in self.translate_table:
+            self.translate_table[key] = sorted(self.translate_table[key].items(), key=lambda x: x[1], reverse=True)
+            if len(self.translate_table[key]) > 10:
+                self.translate_table[key] = self.translate_table[key][:10]
+        # record
+        with open(os.path.join(self.exp_dir, "translate_table.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.translate_table, json_file, ensure_ascii=False)
     
     def get_data_size(self):
         '''
