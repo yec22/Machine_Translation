@@ -24,6 +24,8 @@ class Model:
 
         self.weight_trans = 1.0
         self.weight_lang = 0.1
+        self.weight_distort = 1.0
+        self.alpha = 0.5
         
         nltk.download('punkt')
     
@@ -52,7 +54,7 @@ class Model:
 
         beam_stack = [PriorityQueue() for _ in range(len(source_seg_list) + 1)]
         inital = {"vis": [False for _ in range(len(source_seg_list))],
-                  "sentence": [],
+                  "sentence": [], 'pos': -1,
                   "trans_cost": 0, "lang_cost": 0}
         beam_stack[0].put((0, inital))
 
@@ -81,9 +83,15 @@ class Model:
                             candidate["vis"][j] = True
                             candidate["sentence"] = deepcopy(parent["sentence"])
                             candidate["sentence"].append(zh_word)
+                            candidate["pos"] = j
                             candidate["trans_cost"] = parent["trans_cost"] + math.log(trans_p)
                             candidate["lang_cost"] = parent["lang_cost"] + self.cal_language_model(candidate["sentence"])
-                            candidate_cost = self.weight_trans * candidate["trans_cost"] + self.weight_lang * candidate["lang_cost"]
+                            reorder_cost = math.pow(self.alpha, abs(parent["pos"] - candidate["pos"] + 1))
+                            reorder_cost = math.log(reorder_cost)
+
+                            candidate_cost = self.weight_trans * candidate["trans_cost"] +\
+                                             self.weight_lang * candidate["lang_cost"] +\
+                                             self.weight_distort * reorder_cost
 
                             if candidate_cost in record:
                                 continue

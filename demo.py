@@ -23,3 +23,7 @@ if __name__ == "__main__":
     _, avg = metric.eval(pred=target_pred, 
                             target=target_gt)
     print('avg BLUE-1:', avg)
+
+    _, avg = metric.eval_2(pred=target_pred, 
+                            target=target_gt)
+    print('avg BLUE-2:', avg)
