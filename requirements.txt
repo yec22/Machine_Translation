@@ -1,6 +1,4 @@
 lxml
-numpy
 tqdm
-json
 nltk
 jieba

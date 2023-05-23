@@ -1,24 +1,25 @@
 from preprocess.dataset import Dataset
 from models.MEM import Model
 from evaluation.metric import Metric
+from tqdm import tqdm
 
 if __name__ == "__main__":
     # testing dataset
     dst_test = Dataset(type="test", year=2015)
-    source = dst_test.get_item(10)['en']
-    target_gt = dst_test.get_item(10)['zh']
+    test_data = dst_test.get_all_item()
+    target_pred = []
+    target_gt = []
     
     # get prediction
     model = Model()
-    target_pred = model.translate(source)
+    for pair in tqdm(test_data):
+        source = pair["en"]
+        pred = model.translate(source)
+        target_pred.append(pred)
+        target_gt.append(pair["zh"])
     
     # calculate metric
-    print(source)
-    print(target_pred)
-    print(target_gt)
-
     metric = Metric()
-    BLUE, avg = metric.eval(pred=[target_pred], 
-                            target=[target_gt])
-    print(BLUE)
-    print(avg)
+    _, avg = metric.eval(pred=target_pred, 
+                            target=target_gt)
+    print('avg BLUE-1:', avg)

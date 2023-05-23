@@ -214,10 +214,54 @@ class Dataset:
             self.translate_table[key] = sorted(self.translate_table[key].items(), key=lambda x: x[1], reverse=True)
             if len(self.translate_table[key]) > 10:
                 self.translate_table[key] = self.translate_table[key][:10]
+            total = 0
+            for w in self.translate_table[key]:
+                total += w[1]
+            self.translate_table[key] = [[w[0], w[1] / total] for w in self.translate_table[key]]
         # record
         with open(os.path.join(self.exp_dir, "translate_table.json"), 'w', encoding='utf8') as json_file:
             json.dump(self.translate_table, json_file, ensure_ascii=False)
     
+    def build_language_model(self):
+        language_model = {"start_word": {}, "2-gram": {}}
+        corpus = self.get_all_item()
+        start_n = 0
+        for pair in tqdm(corpus):
+            # Chinese, divide with jieba
+            zh_seg_list = list(jieba.cut(pair['zh'], cut_all=False))
+            # fist word
+            start_n += 1
+            first_word = zh_seg_list[0]
+            if first_word not in language_model["start_word"]:
+                language_model["start_word"][first_word] = 1
+            else:
+                language_model["start_word"][first_word] += 1
+            # 2-gram
+            for i in range(len(zh_seg_list) - 1):
+                gram_1 = zh_seg_list[i]
+                gram_2 = zh_seg_list[i+1]
+                if gram_1 not in language_model["2-gram"]:
+                    language_model["2-gram"][gram_1] = {gram_2: 1}
+                else:
+                    if gram_2 not in language_model["2-gram"][gram_1]:
+                        language_model["2-gram"][gram_1][gram_2] = 1
+                    else:
+                        language_model["2-gram"][gram_1][gram_2] += 1
+                
+        # normalize to probability
+        for key in language_model["start_word"]:
+            language_model["start_word"][key] = language_model["start_word"][key] / start_n
+        for key in language_model["2-gram"]:
+            total = 0
+            for w in language_model["2-gram"][key]:
+                total += language_model["2-gram"][key][w]
+            for w in language_model["2-gram"][key]:
+                language_model["2-gram"][key][w] = language_model["2-gram"][key][w] / total
+
+        # record
+        with open(os.path.join(self.exp_dir, "language_model.json"), 'w', encoding='utf8') as json_file:
+            json.dump(language_model, json_file, ensure_ascii=False)
+
     def get_data_size(self):
         '''
         get the total number of training pairs
