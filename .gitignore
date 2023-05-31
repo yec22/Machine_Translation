@@ -5,3 +5,4 @@ data/zh-en
 *.xml
 *.en
 *.zh
+.idea
