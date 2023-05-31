@@ -24,6 +24,7 @@ class Dataset:
             self.load_test_data(year)
         
         self.exp_dir = "exps_MEM"
+        self.exp_dir_hmm = "exps_HMM"
         if not os.path.exists(self.exp_dir):
             os.mkdir(self.exp_dir)
         nltk.download('punkt')
@@ -187,7 +188,7 @@ class Dataset:
         corpus = self.get_all_item()
 
         # calculate translate table
-        self.translate_table = {}
+        self.support = {}
         for i in tqdm(range(len(align_corpus))):
             sentence = align_corpus[i].strip().split(' ')
             en_seg_list = nltk.word_tokenize(corpus[i]['en'])
@@ -199,29 +200,29 @@ class Dataset:
                     continue
                 en_idx = int(w.split('-')[0])
                 zh_idx = int(w.split('-')[1])
-                if en_seg_list[en_idx] not in self.translate_table:
+                if en_seg_list[en_idx] not in self.support:
                     # first appear
-                    self.translate_table[en_seg_list[en_idx]] = {}
-                if zh_seg_list[zh_idx] not in self.translate_table[en_seg_list[en_idx]]:
+                    self.support[en_seg_list[en_idx]] = {}
+                if zh_seg_list[zh_idx] not in self.support[en_seg_list[en_idx]]:
                     # new translate
-                    self.translate_table[en_seg_list[en_idx]][zh_seg_list[zh_idx]] = 1
+                    self.support[en_seg_list[en_idx]][zh_seg_list[zh_idx]] = 1
                 else:
                     # add count number
-                    self.translate_table[en_seg_list[en_idx]][zh_seg_list[zh_idx]] += 1
+                    self.support[en_seg_list[en_idx]][zh_seg_list[zh_idx]] += 1
 
         # clean & reorder
-        for key in self.translate_table:
-            self.translate_table[key] = sorted(self.translate_table[key].items(), key=lambda x: x[1], reverse=True)
-            if len(self.translate_table[key]) > 10:
-                self.translate_table[key] = self.translate_table[key][:10]
+        for key in self.support:
+            self.support[key] = sorted(self.support[key].items(), key=lambda x: x[1], reverse=True)
+            if len(self.support[key]) > 10:
+                self.support[key] = self.support[key][:10]
             total = 0
-            for w in self.translate_table[key]:
+            for w in self.support[key]:
                 total += w[1]
-            self.translate_table[key] = [[w[0], w[1] / total] for w in self.translate_table[key]]
+            self.support[key] = [[w[0], w[1] / total] for w in self.support[key]]
         # record
         with open(os.path.join(self.exp_dir, "translate_table.json"), 'w', encoding='utf8') as json_file:
-            json.dump(self.translate_table, json_file, ensure_ascii=False)
-    
+            json.dump(self.support, json_file, ensure_ascii=False)
+
     def build_language_model(self):
         language_model = {"start_word": {}, "2-gram": {}}
         corpus = self.get_all_item()
@@ -261,6 +262,126 @@ class Dataset:
         # record
         with open(os.path.join(self.exp_dir, "language_model.json"), 'w', encoding='utf8') as json_file:
             json.dump(language_model, json_file, ensure_ascii=False)
+
+    def generate_HMM_PI(self):
+        HMM_PI = {}
+        corpus = self.get_all_item()
+        total = 0
+        for pair in tqdm(corpus):
+            zh_seg_list = list(jieba.cut(pair['zh'], cut_all=False))
+            total += 1
+            pi_i = zh_seg_list[0]
+            if pi_i not in HMM_PI:
+                HMM_PI[pi_i] = 1.0
+            else:
+                HMM_PI[pi_i] += 1.0
+
+        for key in HMM_PI:
+            HMM_PI[key] = HMM_PI[key] / total
+
+        with open(os.path.join(self.exp_dir_hmm, "HMM_PI.json"), 'w', encoding='utf8') as json_file:
+            json.dump(HMM_PI, json_file, ensure_ascii=False)
+
+    def generate_HMM_A(self):
+        HMM_A = {}
+        corpus = self.get_all_item()
+        for pair in tqdm(corpus):
+            zh_seg_list = list(jieba.cut(pair['zh'], cut_all=False))
+            for i in range(len(zh_seg_list) - 1):
+                w1 = zh_seg_list[i]
+                w2 = zh_seg_list[i + 1]
+                if w1 not in HMM_A:
+                    HMM_A[w1] = {w2: 1.0}
+                else:
+                    if w2 not in HMM_A[w1]:
+                        HMM_A[w1][w2] = 1.0
+                    else:
+                        HMM_A[w1][w2] += 1.0
+
+        for key in HMM_A:
+            total = 0
+            for w in HMM_A[key]:
+                total += HMM_A[key][w]
+            for w in HMM_A[key]:
+                HMM_A[key][w] = HMM_A[key][w] / total
+
+        with open(os.path.join(self.exp_dir_hmm, "HMM_A.json"), 'w', encoding='utf8') as json_file:
+            json.dump(HMM_A, json_file, ensure_ascii=False)
+
+    def generate_HMM_B(self):
+        align_file = open(os.path.join(self.exp_dir, "forward.align"), encoding='utf-8')
+        align_corpus = align_file.readlines()
+        corpus = self.get_all_item()
+
+        HMM_B = {}
+        for i in tqdm(range(len(align_corpus))):
+            sentence = align_corpus[i].strip().split(' ')
+            en_seg_list = nltk.word_tokenize(corpus[i]['en'])
+            en_seg_list = [w.lower() for w in en_seg_list]
+            zh_seg_list = list(jieba.cut(corpus[i]['zh'], cut_all=False))
+
+            for w in sentence:
+                if w == '':
+                    continue
+                en_idx = int(w.split('-')[0])
+                zh_idx = int(w.split('-')[1])
+                zh = zh_seg_list[zh_idx]
+                en = en_seg_list[en_idx]
+                if zh not in HMM_B:
+                    HMM_B[zh] = {}
+                if en not in HMM_B[zh]:
+                    HMM_B[zh][en] = 1
+                else:
+                    HMM_B[zh][en] += 1
+
+        for key in HMM_B:
+            HMM_B[key] = sorted(HMM_B[key].items(), key=lambda x: x[1], reverse=True)
+            if len(HMM_B[key]) > 10:
+                HMM_B[key] = HMM_B[key][:10]
+            total = 0
+            for w in HMM_B[key]:
+                total += w[1]
+            HMM_B[key] = {w[0]: (w[1] / total) for w in HMM_B[key]}
+        with open(os.path.join(self.exp_dir_hmm, "HMM_B.json"), 'w', encoding='utf8') as json_file:
+            json.dump(HMM_B, json_file, ensure_ascii=False)
+
+    def generate_map(self):
+        align_file = open(os.path.join(self.exp_dir, "forward.align"), encoding='utf-8')
+        align_corpus = align_file.readlines()
+        corpus = self.get_all_item()
+
+        # calculate translate table
+        self.support = {}
+        for i in tqdm(range(len(align_corpus))):
+            sentence = align_corpus[i].strip().split(' ')
+            en_seg_list = nltk.word_tokenize(corpus[i]['en'])
+            en_seg_list = [w.lower() for w in en_seg_list]
+            zh_seg_list = list(jieba.cut(corpus[i]['zh'], cut_all=False))
+
+            for w in sentence:
+                if w == '':
+                    continue
+                en_idx = int(w.split('-')[0])
+                zh_idx = int(w.split('-')[1])
+                if en_seg_list[en_idx] not in self.support:
+                    # first appear
+                    self.support[en_seg_list[en_idx]] = {}
+                if zh_seg_list[zh_idx] not in self.support[en_seg_list[en_idx]]:
+                    # new translate
+                    self.support[en_seg_list[en_idx]][zh_seg_list[zh_idx]] = 1
+                else:
+                    # add count number
+                    self.support[en_seg_list[en_idx]][zh_seg_list[zh_idx]] += 1
+
+        # clean & reorder
+        for key in self.support:
+            self.support[key] = sorted(self.support[key].items(), key=lambda x: x[1], reverse=True)
+            if len(self.support[key]) > 10:
+                self.support[key] = self.support[key][:10]
+            self.support[key] = [w[0] for w in self.support[key]]
+        # record
+        with open(os.path.join(self.exp_dir_hmm, "map.json"), 'w', encoding='utf8') as json_file:
+            json.dump(self.support, json_file, ensure_ascii=False)
 
     def get_data_size(self):
         '''
