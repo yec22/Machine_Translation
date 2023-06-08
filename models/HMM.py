@@ -70,13 +70,15 @@ class Model:
                         delta_max = -1e6
                         psi = ''
                         for zh in viterbi[i - 1]:
-                            delta = viterbi[i - 1][zh]
+                            delta = viterbi[i - 1][zh][0]
                             log_pa = self.get_log_pa(zh, zh_t)
                             if log_pa < 0:
-                                delta_t = delta + log_pa + self.get_log_pb(zh_t, en)
-                                if delta_t > delta_max:
-                                    delta_max = delta_t
-                                    psi = zh
+                                log_pb = self.get_log_pb(zh_t, en)
+                                if log_pb < 0:
+                                    delta_t = delta + log_pa + log_pb
+                                    if delta_t > delta_max:
+                                        delta_max = delta_t
+                                        psi = zh
                         viterbi[i][zh_t] = [delta_max, psi]
 
         target = ""
